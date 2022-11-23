@@ -1,0 +1,9 @@
+run vlfeat-0.9.21/toolbox/vl_setup.m
+
+result = affine;
+imshow(result); 
+
+%couldn't get the homography to work. The math is all figured out but i
+%just a
+% [tform1, tform2] = homography;
+% pause;        

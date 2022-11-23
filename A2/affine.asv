@@ -1,0 +1,187 @@
+function  final = affine
+
+% set variables
+prune = 500;
+delta = 2;
+iterations = 250;
+
+source = imread('parliament/parliament-right.jpg');
+destination = imread('parliament/parliament-left.jpg');
+
+first_grey = single(rgb2gray(destination));
+second_grey = single(rgb2gray(source));
+
+[frame_source, descriptors_source] = vl_sift(first_grey) ;
+[frame_destination, descriptors_destination] = vl_sift(second_grey) ;
+
+%prune already 500 threshold gives around 700 matches
+[matches, scores] = vl_ubcmatch(descriptors_source, descriptors_destination ,500);
+
+    
+
+max_inliers_count = 0;
+max_inliers = [];
+
+%step 4 prune %pruning is done above.
+
+%sort scores by quality, record the correspondences
+[scores, scores_indexes] = sort(scores);
+
+%arrange matches in order of quality
+matches = matches(:, scores_indexes);
+
+%set the iterations
+iterations = round(sqrt(length(matches)));
+len = 1:length(matches);
+max_transform = [0 0 0; 0 0 0; 0 0 1;];
+
+%RANSAC
+for iteration = 1:iterations
+    %reset at the beginning of iteration
+    
+    selection = randperm(prune, 3);
+    temp_selection = [selection(1) selection(2) selection(3)];
+
+    %matches are organized by column
+    % MATRIX(row, column)
+    %               x=1,y=2, column= match
+    match_11 = matches(1, temp_selection(1));
+    match_12 = matches(2, temp_selection(1));
+    match_21 = matches(1, temp_selection(2));
+    match_22 = matches(2, temp_selection(2));
+    match_31 = matches(1, temp_selection(3));
+    match_32 = matches(2, temp_selection(3));
+    %finds the matching point i controls which point, j controls which match matches(i,j);
+
+    %point 1
+    x1_s = frame_source(1, match_11);
+    y1_s = frame_source(2, match_11);
+    x1_d = frame_destination(1, match_12);
+    y1_d = frame_destination(2, match_12);
+
+    %point 2
+    x2_s = frame_source(1, match_21);
+    y2_s = frame_source(2, match_21);
+    x2_d = frame_destination(1, match_22);
+    y2_d = frame_destination(2, match_22);
+    
+    %point 3
+    x3_s = frame_source(1, match_31);
+    y3_s = frame_source(2, match_31);
+    x3_d = frame_destination(1, match_32);
+    y3_d = frame_destination(2, match_32);
+
+   %now for the transformation of AX= B
+
+        %A matrix
+        A = [x1_s y1_s 1 0 0 0 ;
+             0 0 0 x1_s y1_s 1 ;
+             x2_s y2_s 1 0 0 0 ; 
+             0 0 0 x2_s y2_s 1 ;
+             x3_s y3_s 1 0 0 0 ;
+             0 0 0 x3_s y3_s 1 ;
+            ];
+
+        %B vector
+        B = [x1_d ; y1_d ; x2_d ; y2_d ; x3_d ; y3_d];
+        
+        %finds the proposed solution
+        transform_solutions = inv(A)*B;
+        
+        x_11 = transform_solutions(1);
+        x_12 = transform_solutions(2);
+        x_13 = transform_solutions(3);
+        x_21 = transform_solutions(4);
+        x_22 = transform_solutions(5);
+        x_23 = transform_solutions(6);
+        
+        %set the transfomation matrix
+        transformation = [
+         x_11 x_12 x_13 ;
+         x_21 x_22 x_23 ;
+           0.   0.   1. ;
+        ];
+
+    inliers_count = 0;
+    inliers = [];
+
+    %get the inliers that match
+        matches = matches;
+        x = frame_source(1, matches(1, 1:length(matches)));
+        y = frame_source(2, matches(1, 1:length(matches)));
+        x_d = frame_destination(1, matches(2, 1:length(matches)));
+        y_d = frame_destination(2, matches(2, 1:length(matches)));  
+
+       for i = 1:length(matches)
+           %create the vector
+        vecctor = [x(i) ; y(i) ; 1];
+        %find the transformation vector
+        transform = transformation * vecctor
+
+        %find the distance between the two points
+        distance = sqrt((transform(1) - x_d(i)) ^ 2 + (transform(2) - y_d(i))^2);
+        if distance <= delta
+            inliers = [inliers, [x(i) ; y(i) ; transform(1) ; transform(2)]];
+            inliers_count = inliers_count + 1;
+        end   
+
+       end
+
+        %if it's the highest count of inliers set the new best info
+        if inliers_count >= max_inliers_count
+            max_inliers_count = max(inliers_count, max_inliers_count);
+            max_inliers = inliers;
+            max_transform = transformation;
+        end
+
+
+end
+
+%least squares
+% Create best affine transformatioon using least squares
+array_length = size(max_inliers,2);
+double_length = array_length * 2;
+A = zeros(double_length, 6, 'double');
+B = zeros(double_length, 1, 'double');
+    
+
+    
+
+    x = max_inliers(1, 1:array_length);
+    y = max_inliers(2, 1:array_length);
+    x_2 = max_inliers(3, 1:array_length);
+    y_2 = max_inliers(4, 1:array_length);
+    index = 1;
+    
+for i = 1:array_length
+
+    A(1+(2*(i-1)), :) = [x(i) y(i) 1 0 0 0];
+    A(1+(2*(i-1)) + 1, :) = [0 0 0 x(i) y(i) 1];
+    B(1+(2*(i-1))) = x_2(i);
+    B(1+(2*(i-1)) + 1) = y_2(i);
+end
+
+% Find transformation matrix
+transform_solution = (A.' * A) \ (A.' * B);
+
+        x_11 = transformation_solutions(1);
+        x_12 = transform_solutions(2);
+        x_13 = transform_solutions(3);
+        x_21 = transform_solutions(4);
+        x_22 = transform_solutions(5);
+        x_23 = transform_solutions(6);
+
+       transformation = [
+         x_11 x_12 x_13 ;
+         x_21 x_22 x_23 ;
+           0.   0.   1. ;
+        ];
+
+tform = affine2d(transformation');
+[transformed_source, warp_ref] = imwarp(destination, tform);
+fused_image = imfuse(transformed_source, warp_ref, source, imref2d(size(source)),'blend','Scaling','joint');
+% gaussian_filter = fspecial("gaussian");
+% fused_image = imfilter(fused_image, gaussian_filter);
+
+
+final = fused_image;
